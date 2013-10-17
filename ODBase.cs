@@ -620,11 +620,16 @@ namespace BPMOData
             }
             request.CookieContainer = _cookieContainer;
 
-            MemoryStream ms = new MemoryStream(bytes);
-            ms.WriteTo(request.GetRequestStream());
+            using (Stream stream = request.GetRequestStream())
+            {
+                stream.Write(bytes, 0, bytes.Length);
+            }
+
             try
             {
                 WebResponse response = request.GetResponse();
+                response.Close();
+
                 if (returnSHA256)
                 {
                     SHA256 sha = SHA256Managed.Create();
