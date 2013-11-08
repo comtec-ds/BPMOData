@@ -12,8 +12,6 @@ using System.Security.Cryptography;
 
 namespace BPMOData
 {
-    
-    
 
     public class ODBase
     {
@@ -28,11 +26,12 @@ namespace BPMOData
         private int? _dataServiceSolutionId;
         private string _authMethod;
         private string _authVersion;
+        private int _timeoutMS;
 
         private bool _useHttps = false; // временный костыль
         private CookieContainer _cookieContainer;
 
-        private int _requestsCompleted =0;
+        private int _requestsCompleted = 0;
         public int requestsCompeted
         {
             get { return _requestsCompleted; }
@@ -58,7 +57,22 @@ namespace BPMOData
             public static string fileTypeLink = "539BC2F8-0EE0-DF11-971B-001D60E938C6".ToLower();
         }
 
-        public ODBase(string url, string login, string password, int? solutionId=null, string authMethod="POST", string authVersion="5.4")
+        public int Timeout
+        {
+            get
+            {
+                return this._timeoutMS;
+            }
+            set
+            {
+                if (value > 0)
+                {
+                    this._timeoutMS = value;
+                }
+            }
+        }
+        
+        public ODBase(string url, string login, string password, int? solutionId=null, string authMethod="POST", string authVersion="5.4", int timeout=60000)
         {
             this._dataServer = url;
             this._dataServiceSolutionId = solutionId;
@@ -71,6 +85,7 @@ namespace BPMOData
             this._dataServicePassword = password;
             this._authMethod = authMethod;
             this._authVersion = authVersion;
+            this._timeoutMS = timeout;
 
             if (url.StartsWith("https://"))
             {
@@ -93,6 +108,7 @@ namespace BPMOData
                 _cookieContainer = new CookieContainer();
                 request.CookieContainer = _cookieContainer;
                 request.Headers.Add("ForceUseSession", "true");
+                request.Timeout = this._timeoutMS;
 
                 using (var requestStream = request.GetRequestStream())
                 {
@@ -140,6 +156,7 @@ namespace BPMOData
                 _cookieContainer = new CookieContainer();
                 request.CookieContainer = _cookieContainer;
                 request.Headers.Add("ForceUseSession", "true");
+                request.Timeout = this._timeoutMS;
 
                 using (var response = (HttpWebResponse)request.GetResponse())
                 {
@@ -160,6 +177,7 @@ namespace BPMOData
             request.Credentials = new NetworkCredential(this._dataServiceLogin, this._dataServicePassword);
             request.Method = "GET";
             request.Headers.Add("ForceUseSession", "true");
+            request.Timeout = this._timeoutMS;
 
             if (_cookieContainer == null || _cookieContainer.Count == 0)
             {
@@ -221,7 +239,6 @@ namespace BPMOData
 
             bool goNext = true;
             string goUrl = this._dataServiceUrl + collection + "Collection" + (query != "" && query != string.Empty ? "?$filter=" + query : "");
-            //this.debugMessages.Add(goUrl);
             int iter = 0;
             while (goNext && iter<maxIterations)
             {
@@ -264,6 +281,7 @@ namespace BPMOData
             request.Credentials = new NetworkCredential(this._dataServiceLogin, this._dataServicePassword);
             request.Method = "GET";
             request.Headers.Add("ForceUseSession", "true");
+            request.Timeout = this._timeoutMS;
 
             if (_cookieContainer == null || _cookieContainer.Count == 0)
             {
@@ -316,6 +334,7 @@ namespace BPMOData
                 request.Credentials = new NetworkCredential(this._dataServiceLogin, this._dataServicePassword);
                 request.Method = "GET";
                 request.Headers.Add("ForceUseSession", "true");
+                request.Timeout = this._timeoutMS;
 
                 if (_cookieContainer == null || _cookieContainer.Count == 0)
                 {
@@ -366,6 +385,7 @@ namespace BPMOData
                 request.Credentials = new NetworkCredential(this._dataServiceLogin, this._dataServicePassword);
                 request.Method = "GET";
                 request.Headers.Add("ForceUseSession", "true");
+                request.Timeout = this._timeoutMS;
 
                 if (_cookieContainer == null || _cookieContainer.Count == 0)
                 {
@@ -465,8 +485,8 @@ namespace BPMOData
             request.Method = "POST";
             request.Accept = "application/atom+xml";
             request.ContentType = "application/atom+xml;type=entry";
-            //request.ContentLength = 0;
             request.Headers.Add("ForceUseSession", "true");
+            request.Timeout = this._timeoutMS;
 
             if (_cookieContainer == null || _cookieContainer.Count == 0)
             {
@@ -559,6 +579,7 @@ namespace BPMOData
             request.Credentials = new NetworkCredential(this._dataServiceLogin, this._dataServicePassword);
             request.Method = "DELETE";
             request.Headers.Add("ForceUseSession", "true");
+            request.Timeout = this._timeoutMS;
 
             if (_cookieContainer == null || _cookieContainer.Count == 0)
             {
@@ -584,6 +605,7 @@ namespace BPMOData
             request.Credentials = new NetworkCredential(this._dataServiceLogin, this._dataServicePassword);
             request.Method = "DELETE";
             request.Headers.Add("ForceUseSession", "true");
+            request.Timeout = this._timeoutMS;
 
             if (_cookieContainer == null || _cookieContainer.Count == 0)
             {
@@ -613,6 +635,7 @@ namespace BPMOData
             request.SendChunked = true;
             request.ContentType = "application/octet-stream";
             request.Headers.Add("ForceUseSession", "true");
+            request.Timeout = this._timeoutMS;
 
             if (_cookieContainer == null || _cookieContainer.Count == 0)
             {
@@ -681,8 +704,8 @@ namespace BPMOData
             request.Method = "PUT";
             request.Accept = "application/atom+xml";
             request.ContentType = "application/atom+xml;type=entry";
-            //request.ContentLength = 0;
             request.Headers.Add("ForceUseSession", "true");
+            request.Timeout = this._timeoutMS;
 
             if (_cookieContainer == null || _cookieContainer.Count == 0)
             {
@@ -730,6 +753,7 @@ namespace BPMOData
                 request.Credentials = new NetworkCredential(this._dataServiceLogin, this._dataServicePassword);
                 request.Method = "GET";
                 request.Headers.Add("ForceUseSession", "true");
+                request.Timeout = this._timeoutMS;
 
                 if (_cookieContainer == null || _cookieContainer.Count == 0)
                 {
@@ -768,11 +792,6 @@ namespace BPMOData
             return result;
         }
 
-
-        /// /// /// /// /// /// /// /// ///
-         /// /// /// /// /// /// /// /// ///
-          /// /// /// /// /// /// /// /// ///
-           /// /// /// /// /// /// /// /// ///
 
         protected static internal ODObject getObjectFromEntry(string collection, XmlElement entry)
         {

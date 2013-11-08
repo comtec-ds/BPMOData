@@ -271,7 +271,7 @@ namespace BPMOData
             }
         }
 
-        // dispose реализовывать?
+        
         /// <summary>
         /// Deletes object. Not disposing. Calling Update method will recreate object
         /// </summary>
