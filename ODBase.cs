@@ -13,6 +13,67 @@ using System.Security.Cryptography;
 namespace BPMOData
 {
 
+    public static class ODBaseCache
+    {
+        internal static Dictionary<string, Tuple<DateTime,CookieContainer>> cookieCache = null;
+
+        public static CookieContainer GetByKey(string key)
+        {
+            if (cookieCache != null && cookieCache.ContainsKey(key))
+            {
+                return cookieCache[key].Item2;
+            }
+            return null;
+        }
+
+        public static void DropByKey(string key)
+        {
+            if (cookieCache != null && cookieCache.ContainsKey(key))
+            {
+                cookieCache.Remove(key);
+            }
+        }
+
+        public static CookieContainer GetByKey(string key, string timeshift)
+        {
+            if (cookieCache != null && cookieCache.ContainsKey(key))
+            {
+                int days = 0; int hours = 0; int minutes = 0;
+                if (timeshift.EndsWith("m"))
+                {
+                    int.TryParse(timeshift.Substring(0, timeshift.Length - 1), out minutes);
+                }
+                if (timeshift.EndsWith("h"))
+                {
+                    int.TryParse(timeshift.Substring(0, timeshift.Length - 1), out hours);
+                }
+                if (timeshift.EndsWith("d"))
+                {
+                    int.TryParse(timeshift.Substring(0, timeshift.Length - 1), out days);
+                }
+
+                TimeSpan ts = new TimeSpan(days, hours, minutes, 0);
+
+                if (cookieCache[key].Item1 > (DateTime.UtcNow - ts))
+                {
+                    return cookieCache[key].Item2;
+                }
+
+            }
+            return null;
+        }
+
+        public static void SetByKey(string key, CookieContainer cookie)
+        {
+            if (cookieCache == null)
+            {
+                cookieCache = new Dictionary<string, Tuple<DateTime, CookieContainer>>();
+            }
+            cookieCache[key] = new Tuple<DateTime, CookieContainer>(DateTime.UtcNow, cookie);
+        }
+
+    }
+
     public class ODBase
     {
         private static readonly XNamespace ds = "http://schemas.microsoft.com/ado/2007/08/dataservices";
@@ -27,9 +88,11 @@ namespace BPMOData
         private string _authMethod;
         private string _authVersion;
         private int _timeoutMS;
+        private bool _sessionModeReadOnly;
+        private bool _forceSession = true;
 
         private bool _useHttps = false; // временный костыль
-        private CookieContainer _cookieContainer;
+        internal CookieContainer _cookieContainer;
 
         private int _requestsCompleted = 0;
         public int requestsCompeted
@@ -43,6 +106,11 @@ namespace BPMOData
         }
         public List<string> debugMessages = new List<string>();
         public List<string> errorMessages = new List<string>();
+
+        public void SaveCacheByKey(string key)
+        {
+            ODBaseCache.SetByKey(key, this._cookieContainer);
+        }
 
         public bool hideConsole = false;
 
@@ -71,8 +139,9 @@ namespace BPMOData
                 }
             }
         }
-        
-        public ODBase(string url, string login, string password, int? solutionId=null, string authMethod="POST", string authVersion="5.4", int timeout=60000)
+
+
+        public ODBase(string url, string login, string password, int? solutionId = null, string authMethod = "POST", string authVersion = "5.4", int timeout = 60000, CookieContainer cookies = null, bool useReadonlySessionMode=false)
         {
             this._dataServer = url;
             this._dataServiceSolutionId = solutionId;
@@ -86,18 +155,29 @@ namespace BPMOData
             this._authMethod = authMethod;
             this._authVersion = authVersion;
             this._timeoutMS = timeout;
+            this._forceSession = true;
+            this._sessionModeReadOnly = useReadonlySessionMode;
 
             if (url.StartsWith("https://"))
             {
                 this._useHttps = true;
             }
-            TryLogin();
+
+            if (cookies != null)
+            {
+                this._cookieContainer = cookies;
+            }
+            else
+            {
+                TryLogin();
+            }
         }
-                
+
 
         protected internal bool TryLogin()
         {
             bool result = false;
+            
             if (this._authMethod == "POST")
             {
                 string loginPath = _dataServer + "/ServiceModel/AuthService.svc/Login";
@@ -107,7 +187,16 @@ namespace BPMOData
                 request.ContentType = "application/json";
                 _cookieContainer = new CookieContainer();
                 request.CookieContainer = _cookieContainer;
-                request.Headers.Add("ForceUseSession", "true");
+                if (this._forceSession) // эээ??? а надо?
+                {
+                    request.Headers.Add("ForceUseSession", "true");
+                }
+                /* // а это надо???
+                if (this._sessionMode != string.Empty)
+                {
+                    request.Headers.Add("Bpmonline-Session-Mode", this._sessionMode);
+                }
+                */ 
                 request.Timeout = this._timeoutMS;
 
                 using (var requestStream = request.GetRequestStream())
@@ -167,6 +256,7 @@ namespace BPMOData
                     response.Close();
                 }
             }
+
             return result;
         }
 
@@ -176,7 +266,14 @@ namespace BPMOData
             var request = (HttpWebRequest)HttpWebRequest.Create(this._dataServiceUrl);
             request.Credentials = new NetworkCredential(this._dataServiceLogin, this._dataServicePassword);
             request.Method = "GET";
-            request.Headers.Add("ForceUseSession", "true");
+            if (this._forceSession)
+            {
+                request.Headers.Add("ForceUseSession", "true");
+            }
+            if (this._sessionModeReadOnly)
+            {
+                request.Headers.Add("Bpmonline-Session-Mode", "ReadOnly");
+            }
             request.Timeout = this._timeoutMS;
 
             if (_cookieContainer == null || _cookieContainer.Count == 0)
@@ -280,7 +377,14 @@ namespace BPMOData
             var request = (HttpWebRequest)HttpWebRequest.Create(url);
             request.Credentials = new NetworkCredential(this._dataServiceLogin, this._dataServicePassword);
             request.Method = "GET";
-            request.Headers.Add("ForceUseSession", "true");
+            if (this._forceSession)
+            {
+                request.Headers.Add("ForceUseSession", "true");
+            }
+            if (this._sessionModeReadOnly)
+            {
+                request.Headers.Add("Bpmonline-Session-Mode", "ReadOnly");
+            }
             request.Timeout = this._timeoutMS;
 
             if (_cookieContainer == null || _cookieContainer.Count == 0)
@@ -315,11 +419,6 @@ namespace BPMOData
             return result;
         }
 
-
-
-        
-
-
         protected internal byte[] GetData(string url)
         {
             byte[] bytes = new byte[0];
@@ -333,7 +432,14 @@ namespace BPMOData
                 var request = (HttpWebRequest)HttpWebRequest.Create(url);
                 request.Credentials = new NetworkCredential(this._dataServiceLogin, this._dataServicePassword);
                 request.Method = "GET";
-                request.Headers.Add("ForceUseSession", "true");
+                if (this._forceSession)
+                {
+                    request.Headers.Add("ForceUseSession", "true");
+                }
+                if (this._sessionModeReadOnly)
+                {
+                    request.Headers.Add("Bpmonline-Session-Mode", "ReadOnly");
+                }
                 request.Timeout = this._timeoutMS;
 
                 if (_cookieContainer == null || _cookieContainer.Count == 0)
@@ -368,6 +474,8 @@ namespace BPMOData
             return bytes;
         }
 
+       
+
         public List<XmlElement> GetPage(string url)
         {
             if (this._useHttps && url.StartsWith("http://")) // костыль
@@ -384,7 +492,14 @@ namespace BPMOData
                 var request = (HttpWebRequest)HttpWebRequest.Create(url);
                 request.Credentials = new NetworkCredential(this._dataServiceLogin, this._dataServicePassword);
                 request.Method = "GET";
-                request.Headers.Add("ForceUseSession", "true");
+                if (this._forceSession)
+                {
+                    request.Headers.Add("ForceUseSession", "true");
+                }
+                if (this._sessionModeReadOnly)
+                {
+                    request.Headers.Add("Bpmonline-Session-Mode", "ReadOnly");
+                }
                 request.Timeout = this._timeoutMS;
 
                 if (_cookieContainer == null || _cookieContainer.Count == 0)
@@ -428,6 +543,7 @@ namespace BPMOData
                     Console.WriteLine(DateTime.Now.ToString("dd.MM.yyyy HH:mm:ss") + ": Error in XML @ " + url);
                 }
                 this.errorMessages.Add(DateTime.Now.ToString("dd.MM.yyyy HH:mm:ss") + ": Error in XML page @ " + url);
+                //throw e;
             }
             catch (WebException e)
             {
@@ -485,7 +601,14 @@ namespace BPMOData
             request.Method = "POST";
             request.Accept = "application/atom+xml";
             request.ContentType = "application/atom+xml;type=entry";
-            request.Headers.Add("ForceUseSession", "true");
+            if (this._forceSession)
+            {
+                request.Headers.Add("ForceUseSession", "true");
+            }
+            if (this._sessionModeReadOnly)
+            {
+                request.Headers.Add("Bpmonline-Session-Mode", "ReadOnly");
+            }
             request.Timeout = this._timeoutMS;
 
             if (_cookieContainer == null || _cookieContainer.Count == 0)
@@ -495,9 +618,17 @@ namespace BPMOData
             request.CookieContainer = _cookieContainer;
 
             string result = "?";
-            using (var writer = XmlWriter.Create(request.GetRequestStream()))
+            try
             {
-                entry.WriteTo(writer);
+                using (var writer = XmlWriter.Create(request.GetRequestStream()))
+                {
+                    entry.WriteTo(writer);
+                }
+            }
+            catch
+            {
+                WebException we = new WebException("Error in writing XML");
+                throw new ODWebException(we);
             }
 
             try
@@ -523,7 +654,7 @@ namespace BPMOData
             string result = "";
             foreach (XmlElement xe in entry.ChildNodes)
             {
-                if (xe.Name == "link" && xe.HasAttribute("title") && xe.GetAttribute("title") == "Data" && xe.HasAttribute("rel") && xe.GetAttribute("rel").EndsWith("edit-media/Data") && xe.HasAttribute("href"))
+                if (xe.Name == "link" && xe.HasAttribute("title") && xe.GetAttribute("title").ToLower() == "data" && xe.HasAttribute("rel") && xe.GetAttribute("rel").ToLower().EndsWith("edit-media/data") && xe.HasAttribute("href"))
                 {
                     result = xe.GetAttribute("href");
                     break;
@@ -578,7 +709,14 @@ namespace BPMOData
             var request = (HttpWebRequest)HttpWebRequest.Create(this._dataServiceUrl + Collection + "Collection(guid'" + Guid + "')/");
             request.Credentials = new NetworkCredential(this._dataServiceLogin, this._dataServicePassword);
             request.Method = "DELETE";
-            request.Headers.Add("ForceUseSession", "true");
+            if (this._forceSession)
+            {
+                request.Headers.Add("ForceUseSession", "true");
+            }
+            if (this._sessionModeReadOnly)
+            {
+                request.Headers.Add("Bpmonline-Session-Mode", "ReadOnly");
+            }
             request.Timeout = this._timeoutMS;
 
             if (_cookieContainer == null || _cookieContainer.Count == 0)
@@ -604,7 +742,14 @@ namespace BPMOData
             var request = (HttpWebRequest)HttpWebRequest.Create(this._dataServiceUrl + Collection + "Collection(guid'" + Guid + "')/$links/" + CollectionTo);
             request.Credentials = new NetworkCredential(this._dataServiceLogin, this._dataServicePassword);
             request.Method = "DELETE";
-            request.Headers.Add("ForceUseSession", "true");
+            if (this._forceSession)
+            {
+                request.Headers.Add("ForceUseSession", "true");
+            }
+            if (this._sessionModeReadOnly)
+            {
+                request.Headers.Add("Bpmonline-Session-Mode", "ReadOnly");
+            }
             request.Timeout = this._timeoutMS;
 
             if (_cookieContainer == null || _cookieContainer.Count == 0)
@@ -626,15 +771,22 @@ namespace BPMOData
 
         public string UploadBinary(string Collection, string Guid, byte[] bytes, bool returnSHA256=true)
         {
-            var request =
-                    (HttpWebRequest)HttpWebRequest.Create(this._dataServiceUrl + Collection + "Collection(guid'" + Guid + "')/Data");
+            var request = (HttpWebRequest)HttpWebRequest.Create(this._dataServiceUrl + Collection + "Collection(guid'" + Guid + "')/Data");
+
             request.Credentials = new NetworkCredential(this._dataServiceLogin, this._dataServicePassword);
             request.Method = "PUT";
             request.Accept = "application/atom+xml";
             request.ContentLength = bytes.Length;
             request.SendChunked = true;
             request.ContentType = "application/octet-stream";
-            request.Headers.Add("ForceUseSession", "true");
+            if (this._forceSession)
+            {
+                request.Headers.Add("ForceUseSession", "true");
+            }
+            if (this._sessionModeReadOnly)
+            {
+                request.Headers.Add("Bpmonline-Session-Mode", "ReadOnly");
+            }
             request.Timeout = this._timeoutMS;
 
             if (_cookieContainer == null || _cookieContainer.Count == 0)
@@ -704,7 +856,14 @@ namespace BPMOData
             request.Method = "PUT";
             request.Accept = "application/atom+xml";
             request.ContentType = "application/atom+xml;type=entry";
-            request.Headers.Add("ForceUseSession", "true");
+            if (this._forceSession)
+            {
+                request.Headers.Add("ForceUseSession", "true");
+            }
+            if (this._sessionModeReadOnly)
+            {
+                request.Headers.Add("Bpmonline-Session-Mode", "ReadOnly");
+            }
             request.Timeout = this._timeoutMS;
 
             if (_cookieContainer == null || _cookieContainer.Count == 0)
@@ -714,9 +873,18 @@ namespace BPMOData
             request.CookieContainer = _cookieContainer;
 
             string result = "";
-            using (var writer = XmlWriter.Create(request.GetRequestStream()))
+            try
             {
-                entry.WriteTo(writer);
+                
+                using (var writer = XmlWriter.Create(request.GetRequestStream()))
+                {
+                    entry.WriteTo(writer);
+                }
+            }
+            catch
+            {
+                WebException we = new WebException("Error in writing XML");
+                throw new ODWebException(we);
             }
 
             try
@@ -752,7 +920,14 @@ namespace BPMOData
                 var request = (HttpWebRequest)HttpWebRequest.Create(url);
                 request.Credentials = new NetworkCredential(this._dataServiceLogin, this._dataServicePassword);
                 request.Method = "GET";
-                request.Headers.Add("ForceUseSession", "true");
+                if (this._forceSession)
+                {
+                    request.Headers.Add("ForceUseSession", "true");
+                }
+                if (this._sessionModeReadOnly)
+                {
+                    request.Headers.Add("Bpmonline-Session-Mode", "ReadOnly");
+                }
                 request.Timeout = this._timeoutMS;
 
                 if (_cookieContainer == null || _cookieContainer.Count == 0)
@@ -904,26 +1079,6 @@ namespace BPMOData
             return result;
         }
 
-
-
-        /* DEPRECATED */
-        private ODObject GetOrCreateByUniqueField(string collection, string field, string name)
-        {
-            int errsNum = this.errorMessages.Count;
-            ODObject result = this.GetFirstItemByUniqueField(collection, field, name);
-            if (result != null)
-            {
-                return result;
-            }
-            if (this.errorMessages.Count == errsNum) // если ошибок не было
-            {
-                result = ODObject.NewObject(collection);
-                result["Name"] = name;
-                result.Update(this);
-                result = this.GetFirstItemByUniqueField(collection, field, name);
-            }
-            return result;
-        }
 
         public Dictionary<string, ODObject> GetDictionaryByUniqueField(string collection, string field, int maxIterations=10)
         {

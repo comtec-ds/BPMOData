@@ -235,7 +235,38 @@ namespace BPMOData
                 return new byte[0];
             }
         }
-        
+
+        public byte[] GetData(ODBase odb, bool useVwFile)
+        {
+            byte[] standartData = new byte[0];
+
+            try
+            {
+                standartData = this.GetData(odb);
+            }
+            catch (ODWebException exc)
+            {
+                if (!useVwFile)
+                {
+                    throw exc;
+                }
+            }
+
+            if (!useVwFile)
+            {
+                return standartData;
+            }
+            else
+            {
+                ODObject vw = new ODObject(odb, "VwFile", this.Guid);
+                if (vw != null && vw.hasBinaryData)
+                {
+                    return vw.GetData(odb);
+                }
+            }
+            return standartData;
+        }
+
         protected internal ODObject() { }
 
         /// <summary>
