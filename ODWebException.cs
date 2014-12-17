@@ -10,6 +10,24 @@ using System.IO;
 
 namespace BPMOData
 {
+    public class ODSecurityException : Exception
+    {
+        internal string _operation;
+
+        public string operation
+        {
+            get
+            {
+                return this._operation;
+            }
+        }
+
+        public ODSecurityException(string operation)
+            : base("Unable to perform operation")
+        {
+            this._operation = operation;
+        }
+    }
 
     public class ODWebException : WebException
     {

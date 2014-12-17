@@ -141,7 +141,7 @@ namespace BPMOData
         }
 
 
-        public ODBase(string url, string login, string password, int? solutionId = null, string authMethod = "POST", string authVersion = "5.4", int timeout = 60000, CookieContainer cookies = null, bool useReadonlySessionMode=false)
+        public ODBase(string url, string login, string password, int? solutionId = null, string authMethod = "POST", string authVersion = "5.4", int timeout = 60000, CookieContainer cookies = null, bool useReadonlySessionMode=false, bool ignoreSSLCertificateCheck=false)
         {
             this._dataServer = url;
             this._dataServiceSolutionId = solutionId;
@@ -161,6 +161,11 @@ namespace BPMOData
             if (url.StartsWith("https://"))
             {
                 this._useHttps = true;
+            }
+
+            if (ignoreSSLCertificateCheck)
+            {
+                System.Net.ServicePointManager.ServerCertificateValidationCallback = ((sender, cert, chain, errors) => true);
             }
 
             if (cookies != null)
@@ -209,7 +214,8 @@ namespace BPMOData
                                     writer.Write(@"{
 										""UserLogin"":""" + _dataServiceLogin + @""",
 										""UserPassword"":""" + _dataServicePassword + @""",
-										""Language"":""Ru-ru""
+										""Language"":""Ru-ru"",
+                                        ""TimeZoneOffset"":0
 										}");
                                     break;
                                 }
@@ -218,7 +224,8 @@ namespace BPMOData
                                     writer.Write(@"{
 										""UserName"":""" + _dataServiceLogin + @""",
 										""UserPassword"":""" + _dataServicePassword + @""",
-										""Language"":""Ru-ru""
+										""Language"":""ru-Ru"",
+                                        ""TimeZoneOffset"":0
 										}");
 
                                     break;
@@ -329,13 +336,17 @@ namespace BPMOData
         }
 
 
+        protected internal List<XmlElement> GetAllPages(string collection, string query, int maxIterations = 10)
+        {
+            return this.GetAllPages(collection, query, "", maxIterations);
+        }
 
-        protected internal List<XmlElement> GetAllPages(string collection, string query, int maxIterations=10)
+        protected internal List<XmlElement> GetAllPages(string collection, string query, string fields, int maxIterations=10)
         {
             List<XmlElement> result = new List<XmlElement>();
 
             bool goNext = true;
-            string goUrl = this._dataServiceUrl + collection + "Collection" + (query != "" && query != string.Empty ? "?$filter=" + query : "");
+            string goUrl = this._dataServiceUrl + collection + "Collection"+(fields!=""? "?$select="+fields:"") + (query != "" ? (fields!=""?"&":"?")+ "$filter=" + query : "");
             int iter = 0;
             while (goNext && iter<maxIterations)
             {
@@ -968,9 +979,9 @@ namespace BPMOData
         }
 
 
-        protected static internal ODObject getObjectFromEntry(string collection, XmlElement entry)
+        protected static internal ODObject getObjectFromEntry(string collection, XmlElement entry, bool readOnly=false)
         {
-            ODObject result = new ODObject();
+            ODObject result = new ODObject(readOnly);
             result._data = ODBase.GetEntryFields(entry);
             result._binaryDataLink = ODBase.GetDataLink(entry);
             result._Collection = collection;
@@ -1060,13 +1071,48 @@ namespace BPMOData
             return result;
         }
 
+        public List<ODObject> GetSomeLimitedItems(string collection, string fields, int skip)
+        {
+            return this.GetSomeLimitedItemsByQuery(collection, "", fields, skip);
+        }
+
+        public List<ODObject> GetSomeLimitedItems(string collection, string fields)
+        {
+            return this.GetSomeLimitedItemsByQuery(collection, "", fields, 0);
+        }
+
+        public List<ODObject> GetSomeLimitedItemsByQuery(string collection, string query, string fields)
+        {
+            return this.GetSomeLimitedItemsByQuery(collection, query, fields, 0);
+        }
+
+        public List<ODObject> GetSomeLimitedItemsByQuery(string collection, string query, string fields, int skip)
+        {
+            if (!fields.StartsWith("Id,"))
+            {
+                fields = "Id," + fields;
+            }
+            List<ODObject> result = new List<ODObject>();
+            List<XmlElement> entries = this.GetPage(this._dataServiceUrl + collection + "Collection?$select="+fields+"&$filter=" + (query != "" ? query : "1 eq 1") + (skip > 0 ? "&$skip=" + skip : ""));
+            foreach (XmlElement entry in entries)
+            {
+                if (entry.Name == "entry")
+                {
+                    ODObject item = ODBase.getObjectFromEntry(collection, entry, true);
+                    result.Add(item);
+                }
+            }
+            return result;
+        }
+
+
         /// <summary>
         /// HIGHLY NOT RECOMMENDED
         /// </summary>
         public List<ODObject> GetAllItemsByQuery(string collection, string query, int maxIterations=10)
         {
             List<ODObject> result = new List<ODObject>();
-            List<XmlElement> entries = this.GetAllPages(collection, query, maxIterations);
+            List<XmlElement> entries = this.GetAllPages(collection, query,"", maxIterations);
             
             foreach (XmlElement entry in entries)
             {
@@ -1079,6 +1125,28 @@ namespace BPMOData
             return result;
         }
 
+        /// <summary>
+        /// HIGHLY NOT RECOMMENDED
+        /// </summary>
+        public List<ODObject> GetAllLimitedItemsByQuery(string collection, string query, string fields, int maxIterations = 10)
+        {
+            if (!fields.StartsWith("Id,"))
+            {
+                fields = "Id," + fields;
+            }
+            List<ODObject> result = new List<ODObject>();
+            List<XmlElement> entries = this.GetAllPages(collection, query, fields, maxIterations);
+
+            foreach (XmlElement entry in entries)
+            {
+                if (entry.Name == "entry")
+                {
+                    ODObject item = ODBase.getObjectFromEntry(collection, entry, true);
+                    result.Add(item);
+                }
+            }
+            return result;
+        }
 
         public Dictionary<string, ODObject> GetDictionaryByUniqueField(string collection, string field, int maxIterations=10)
         {
@@ -1087,7 +1155,7 @@ namespace BPMOData
 
         public Dictionary<string, ODObject> GetDictionaryByUniqueField(string collection, string field, string query, int maxIterations=10)
         {
-            List<XmlElement> entries = this.GetAllPages(collection, query, maxIterations);
+            List<XmlElement> entries = this.GetAllPages(collection, query, "", maxIterations);
             Dictionary<string, ODObject> result = new Dictionary<string, ODObject>();
             foreach (XmlElement entry in entries)
             {

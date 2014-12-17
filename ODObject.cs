@@ -25,6 +25,7 @@ namespace BPMOData
         }
 
         internal string _Collection = string.Empty;
+        internal Boolean IsReadOnly = false;
         public string _binaryDataLink = string.Empty;
 
         internal Dictionary<string, object> _data = new Dictionary<string, object>();
@@ -154,7 +155,7 @@ namespace BPMOData
         /// </summary>
         public void LoadMany(ODBase odbase, string Collection, string joinField)
         {
-            List<XmlElement> entries = odbase.GetAllPages(Collection, joinField + " eq guid'" + this.Guid + "'");
+            List<XmlElement> entries = odbase.GetAllPages(Collection, joinField + " eq guid'" + this.Guid + "'", "");
             List<ODObject> result = new List<ODObject>();
             foreach (XmlElement entry in entries)
             {
@@ -222,6 +223,7 @@ namespace BPMOData
             }
             
             this._binaryDataLink = ODBase.GetDataLink(elements[0]);
+            this.IsReadOnly = false;
         }
 
         public byte[] GetData(ODBase odb)
@@ -267,7 +269,10 @@ namespace BPMOData
             return standartData;
         }
 
-        protected internal ODObject() { }
+        protected internal ODObject(bool readOnly=false)
+        {
+            this.IsReadOnly = readOnly;
+        }
 
         /// <summary>
         /// Prepares new object in Collection, CreatedOn and Modified will be set to DateTime.Now
@@ -288,17 +293,24 @@ namespace BPMOData
         /// </summary>
         public string Update(ODBase odb)
         {
-            this.FixDateBug();
-            this["ModifiedOn"] = DateTime.Now.ToUniversalTime().ToString("o");
-            if (this.Guid == string.Empty)
+            if (!this.IsReadOnly)
             {
-                // to create
-                return odb.AddItem(this._Collection, this._data);
+                this.FixDateBug();
+                this["ModifiedOn"] = DateTime.Now.ToUniversalTime().ToString("o");
+                if (this.Guid == string.Empty)
+                {
+                    // to create
+                    return odb.AddItem(this._Collection, this._data);
+                }
+                else
+                {
+                    // to update
+                    return odb.UpdateItem(this._Collection, this.Guid, this._data);
+                }
             }
             else
             {
-                // to update
-                return odb.UpdateItem(this._Collection, this.Guid, this._data);
+                throw new ODSecurityException("update");
             }
         }
 
@@ -308,46 +320,67 @@ namespace BPMOData
         /// </summary>
         public void Delete(ODBase odb)
         {
-            if (this.Guid != string.Empty)
+            if (!this.IsReadOnly)
             {
-                odb.DeleteItem(this._Collection, this.Guid);
-                this.Guid = string.Empty;
-                this["Id"] = null;
-            }
-        }
-
-        public bool UploadBinary(ODBase odb, byte[] bytes, bool saveFiletypeAndSize=true, bool saveSHA256Hash=true)
-        {
-            string result1 = odb.UploadBinary(this._Collection, this.Guid, bytes, saveSHA256Hash);
-            if (result1 != "")
-            {
-                if (saveFiletypeAndSize || saveSHA256Hash)
+                if (this.Guid != string.Empty)
                 {
-                    if (saveFiletypeAndSize)
-                    {
-                        this["Size"] = bytes.Length;
-                        this["TypeId"] = ODBase.CommonIds.fileTypeFile;
-                    }
-                    if (saveSHA256Hash)
-                    {
-                        this["Hash"] = result1;
-                    }
-                    this.Update(odb);
+                    odb.DeleteItem(this._Collection, this.Guid);
+                    this.Guid = string.Empty;
+                    this["Id"] = null;
                 }
-                return true;
             }
             else
             {
-                return false;
+                throw new ODSecurityException("delete");
+            }
+        }
+
+        public bool UploadBinary(ODBase odb, byte[] bytes, bool saveFiletypeAndSize = true, bool saveSHA256Hash = true)
+        {
+            if (!this.IsReadOnly)
+            {
+                string result1 = odb.UploadBinary(this._Collection, this.Guid, bytes, saveSHA256Hash);
+                if (result1 != "")
+                {
+                    if (saveFiletypeAndSize || saveSHA256Hash)
+                    {
+                        if (saveFiletypeAndSize)
+                        {
+                            this["Size"] = bytes.Length;
+                            this["TypeId"] = ODBase.CommonIds.fileTypeFile;
+                        }
+                        if (saveSHA256Hash)
+                        {
+                            this["Hash"] = result1;
+                        }
+                        this.Update(odb);
+                    }
+                    return true;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                throw new ODSecurityException("uploadbinary");
             }
         }
 
         public void DeleteLink(ODBase odb, string CollectionTo)
         {
-            odb.DeleteLink(this._Collection, this.Guid, CollectionTo);
-            if (this.HasProperty(CollectionTo + "Id"))
+            if (!this.IsReadOnly)
             {
-                this[CollectionTo + "Id"] = null;
+                odb.DeleteLink(this._Collection, this.Guid, CollectionTo);
+                if (this.HasProperty(CollectionTo + "Id"))
+                {
+                    this[CollectionTo + "Id"] = null;
+                }
+            }
+            else
+            {
+                throw new ODSecurityException("deletelink");
             }
         }
 
@@ -356,15 +389,22 @@ namespace BPMOData
         /// </summary>
         public void MergeWith(ODObject second)
         {
-            Dictionary<string, object> secondData = new Dictionary<string, object>();
-            foreach (KeyValuePair<string, object> kvp in second._data)
+            if (!this.IsReadOnly)
             {
-                if (kvp.Key != "Id")
+                Dictionary<string, object> secondData = new Dictionary<string, object>();
+                foreach (KeyValuePair<string, object> kvp in second._data)
                 {
-                    secondData.Add(kvp.Key, kvp.Value);
+                    if (kvp.Key != "Id")
+                    {
+                        secondData.Add(kvp.Key, kvp.Value);
+                    }
                 }
+                this.MergeWith(secondData);
             }
-            this.MergeWith(secondData);
+            else
+            {
+                throw new ODSecurityException("update");
+            }
         }
 
         /// <summary>
@@ -372,26 +412,33 @@ namespace BPMOData
         /// </summary>
         public void MergeWith(Dictionary<string, object> newData)
         {
-            foreach (KeyValuePair<string, object> kvp in newData)
+            if (!this.IsReadOnly)
             {
-                if (this._data.ContainsKey(kvp.Key))
+                foreach (KeyValuePair<string, object> kvp in newData)
                 {
-                    if (kvp.Value == null)
+                    if (this._data.ContainsKey(kvp.Key))
                     {
-                        this._data.Remove(kvp.Key);
+                        if (kvp.Value == null)
+                        {
+                            this._data.Remove(kvp.Key);
+                        }
+                        else
+                        {
+                            this._data[kvp.Key] = kvp.Value;
+                        }
                     }
                     else
                     {
-                        this._data[kvp.Key] = kvp.Value;
+                        if (kvp.Value != null)
+                        {
+                            this._data[kvp.Key] = kvp.Value;
+                        }
                     }
                 }
-                else
-                {
-                    if (kvp.Value != null)
-                    {
-                        this._data[kvp.Key] = kvp.Value;
-                    }
-                }
+            }
+            else
+            {
+                throw new ODSecurityException("update");
             }
         }
                 
