@@ -564,7 +564,8 @@ namespace BPMOData
                 }
                 this.errorMessages.Add(DateTime.Now.ToString("dd.MM.yyyy HH:mm:ss") + ": Failed to retrieve page @ " + url);
 
-                throw new ODWebException(e);
+                ODWebException except = new ODWebException(e);
+                throw except;
             }
 
            
@@ -706,6 +707,21 @@ namespace BPMOData
                             }
                             
                             val[dName] = anotherValue=="" ? d.InnerText : anotherValue;
+                        }
+                    }
+                }
+                if (xe.Name == "link" && xe["m:inline"]!=null)
+                {
+                    string linkTitle = xe.GetAttribute("title");
+                    foreach (XmlElement xe2 in xe["m:inline"])
+                    {
+                        if (xe2.Name == "entry")
+                        {
+                            Dictionary<string, object> val2 = GetEntryFields(xe2);
+                            foreach (KeyValuePair<string, object> kvp in val2)
+                            {
+                                val[linkTitle + "__" + kvp.Key] = kvp.Value;
+                            }
                         }
                     }
                 }
@@ -1088,12 +1104,33 @@ namespace BPMOData
 
         public List<ODObject> GetSomeLimitedItemsByQuery(string collection, string query, string fields, int skip)
         {
+            string toexpand="";
             if (!fields.StartsWith("Id,"))
             {
                 fields = "Id," + fields;
             }
+            if (fields.Contains("/"))
+            {
+                List<string> willexpand = new List<string>();
+                foreach (string f in fields.Split(new char[] { ',',';', ' ' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (f.Contains("/"))
+                    {
+                        string obj = f.Substring(0, f.LastIndexOf("/"));
+                        if (!willexpand.Contains(obj))
+                        {
+                            if (toexpand != "")
+                            {
+                                toexpand += ", ";
+                            }
+                            toexpand += obj;
+                            willexpand.Add(obj);
+                        }
+                    }
+                }
+            }
             List<ODObject> result = new List<ODObject>();
-            List<XmlElement> entries = this.GetPage(this._dataServiceUrl + collection + "Collection?$select="+fields+"&$filter=" + (query != "" ? query : "1 eq 1") + (skip > 0 ? "&$skip=" + skip : ""));
+            List<XmlElement> entries = this.GetPage(this._dataServiceUrl + collection + "Collection?$select="+fields+"&$filter=" + (query != "" ? query : "1 eq 1") + (skip > 0 ? "&$skip=" + skip : "")+(toexpand!=""?"&$expand="+toexpand:""));
             foreach (XmlElement entry in entries)
             {
                 if (entry.Name == "entry")
@@ -1106,9 +1143,7 @@ namespace BPMOData
         }
 
 
-        /// <summary>
-        /// HIGHLY NOT RECOMMENDED
-        /// </summary>
+
         public List<ODObject> GetAllItemsByQuery(string collection, string query, int maxIterations=10)
         {
             List<ODObject> result = new List<ODObject>();
@@ -1125,15 +1160,41 @@ namespace BPMOData
             return result;
         }
 
-        /// <summary>
-        /// HIGHLY NOT RECOMMENDED
-        /// </summary>
+        
         public List<ODObject> GetAllLimitedItemsByQuery(string collection, string query, string fields, int maxIterations = 10)
         {
+  
+            string toexpand = "";
             if (!fields.StartsWith("Id,"))
             {
                 fields = "Id," + fields;
             }
+            if (fields.Contains("/"))
+            {
+                List<string> willexpand = new List<string>();
+                foreach (string f in fields.Split(new char[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (f.Contains("/"))
+                    {
+                        string obj = f.Substring(0, f.LastIndexOf("/"));
+                        if (!willexpand.Contains(obj))
+                        {
+                            if (toexpand != "")
+                            {
+                                toexpand += ", ";
+                            }
+                            toexpand += obj;
+                            willexpand.Add(obj);
+                        }
+                    }
+                }
+            }
+
+            if (toexpand != "")
+            {
+                query += "&$expand=" + toexpand;
+            }
+
             List<ODObject> result = new List<ODObject>();
             List<XmlElement> entries = this.GetAllPages(collection, query, fields, maxIterations);
 

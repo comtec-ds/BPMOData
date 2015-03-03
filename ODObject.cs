@@ -11,8 +11,7 @@ using System.IO;
 
 namespace BPMOData
 {
-
-    public class ODObject
+    public class FormozaObject
     {
         //{00000000-0000-0000-0000-000000000000}
         public string Guid = string.Empty;
@@ -23,13 +22,12 @@ namespace BPMOData
                 return this._binaryDataLink != "";
             }
         }
-
+        
         internal string _Collection = string.Empty;
         internal Boolean IsReadOnly = false;
         public string _binaryDataLink = string.Empty;
 
         internal Dictionary<string, object> _data = new Dictionary<string, object>();
-
 
         public bool exists
         {
@@ -60,22 +58,6 @@ namespace BPMOData
             return this.Guid;
         }
 
-        internal void FixDateBug()
-        {
-            List<string> keys = new List<string>(this._data.Keys);
-            foreach (string k in keys)
-            {
-                if (this._data[k] != null)
-                {
-                    string ts = this._data[k].ToString();
-                    if (ts.EndsWith("T00:00:00.0000000Z") || ts.EndsWith("T00:00:00"))
-                    {
-                        this._data[k] = ts.Replace("T00:00:00", "T12:00:00");
-                    }
-                }
-            }
-        }
-
         public bool HasProperty(string prop)
         {
             return this._data.ContainsKey(prop);
@@ -101,23 +83,31 @@ namespace BPMOData
                 Dictionary<string, string> result = new Dictionary<string, string>();
                 foreach (KeyValuePair<string, object> kvp in this._data)
                 {
-                    switch (kvp.Value.GetType().Name)
+                    try
                     {
-                        case "DateTime":
-                            {
-                                result[kvp.Key] = ((DateTime)kvp.Value).ToString("o");
-                                break;
-                            }
-                        default:
-                            {
-                                result[kvp.Key] = kvp.Value.ToString();
-                                break;
-                            }
+                        switch (kvp.Value.GetType().Name)
+                        {
+                            case "DateTime":
+                                {
+                                    result[kvp.Key] = ((DateTime)kvp.Value).ToString("o");
+                                    break;
+                                }
+                            default:
+                                {
+                                    result[kvp.Key] = kvp.Value.ToString();
+                                    break;
+                                }
+                        }
+                    }
+                    catch
+                    {
+                        result[kvp.Key] = kvp.Value.ToString();
                     }
                 }
                 return result;
             }
         }
+
         public string Collection
         {
             get
@@ -125,6 +115,51 @@ namespace BPMOData
                 return this._Collection;
             }
         }
+
+
+        public FormozaObject(string collection, string guid)
+        {
+            this.IsReadOnly = true;
+            this._Collection = collection;
+            this.Guid = guid;
+            this._data = new Dictionary<string, object>();
+            
+        }
+
+        public static FormozaObject NewObject(string Collection)
+        {
+            FormozaObject result = new FormozaObject();
+            result._Collection = Collection;
+            result._data = new Dictionary<string, object>();
+            result._data["CreatedOn"] = DateTime.Now.ToUniversalTime().ToString("o");
+            result._data["ModifiedOn"] = DateTime.Now.ToUniversalTime().ToString("o");
+            result._data["Id"] = System.Guid.NewGuid();
+            return result;
+            
+        }
+
+        internal FormozaObject() { }
+    }
+
+    public class ODObject : FormozaObject
+    {
+
+        internal void FixDateBug()
+        {
+            List<string> keys = new List<string>(this._data.Keys);
+            foreach (string k in keys)
+            {
+                if (this._data[k] != null)
+                {
+                    string ts = this._data[k].ToString();
+                    if (ts.EndsWith("T00:00:00.0000000Z") || ts.EndsWith("T00:00:00"))
+                    {
+                        this._data[k] = ts.Replace("T00:00:00", "T12:00:00");
+                    }
+                }
+            }
+        }
+       
         public string CollectionLocalName
         {
             get
