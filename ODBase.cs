@@ -8,6 +8,7 @@ using System.Xml.Linq;
 using System.Net.Cache;
 using System.IO;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 
 
 namespace BPMOData
@@ -16,7 +17,7 @@ namespace BPMOData
     public static class ODBaseCache
     {
         internal static Dictionary<string, Tuple<DateTime,CookieContainer>> cookieCache = null;
-
+        
         public static CookieContainer GetByKey(string key)
         {
             if (cookieCache != null && cookieCache.ContainsKey(key))
@@ -73,6 +74,8 @@ namespace BPMOData
         }
 
     }
+
+
 
     public class ODBase
     {
@@ -140,6 +143,19 @@ namespace BPMOData
             }
         }
 
+        // filters control characters but allows only properly-formed surrogate sequences
+        private static Regex _invalidXMLChars = new Regex(
+            @"(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F\uFEFF\uFFFE\uFFFF]",
+            RegexOptions.Compiled);
+
+        /// <summary>
+        /// removes any unusual unicode characters that can't be encoded into XML
+        /// </summary>
+        public static string RemoveInvalidXMLChars(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return "";
+            return _invalidXMLChars.Replace(text, "");
+        }
 
         public ODBase(string url, string login, string password, int? solutionId = null, string authMethod = "POST", string authVersion = "5.4", int timeout = 60000, CookieContainer cookies = null, bool useReadonlySessionMode=false, bool ignoreSSLCertificateCheck=false)
         {
@@ -178,11 +194,10 @@ namespace BPMOData
             }
         }
 
-
-        protected internal bool TryLogin()
+        public bool CheckAuth(string login, string password)
         {
             bool result = false;
-            
+
             if (this._authMethod == "POST")
             {
                 string loginPath = _dataServer + "/ServiceModel/AuthService.svc/Login";
@@ -190,30 +205,28 @@ namespace BPMOData
                 var request = HttpWebRequest.Create(loginPath) as HttpWebRequest;
                 request.Method = "POST";
                 request.ContentType = "application/json";
-                _cookieContainer = new CookieContainer();
-                request.CookieContainer = _cookieContainer;
-                if (this._forceSession) // эээ??? а надо?
+                if (login == this._dataServiceLogin)
                 {
-                    request.Headers.Add("ForceUseSession", "true");
+                    _cookieContainer = new CookieContainer();
+                    request.CookieContainer = _cookieContainer;
+                    if (this._forceSession)
+                    {
+                        request.Headers.Add("ForceUseSession", "true");
+                    }
                 }
-                /* // а это надо???
-                if (this._sessionMode != string.Empty)
-                {
-                    request.Headers.Add("Bpmonline-Session-Mode", this._sessionMode);
-                }
-                */ 
                 request.Timeout = this._timeoutMS;
 
                 using (var requestStream = request.GetRequestStream())
                 {
                     using (var writer = new StreamWriter(requestStream))
                     {
-                        switch (this._authVersion) {
+                        switch (this._authVersion)
+                        {
                             case "5.1":
                                 {
                                     writer.Write(@"{
-										""UserLogin"":""" + _dataServiceLogin + @""",
-										""UserPassword"":""" + _dataServicePassword + @""",
+										""UserLogin"":""" + login + @""",
+										""UserPassword"":""" + password + @""",
 										""Language"":""Ru-ru"",
                                         ""TimeZoneOffset"":0
 										}");
@@ -222,49 +235,70 @@ namespace BPMOData
                             case "5.4":
                                 {
                                     writer.Write(@"{
-										""UserName"":""" + _dataServiceLogin + @""",
-										""UserPassword"":""" + _dataServicePassword + @""",
+										""UserName"":""" + login + @""",
+										""UserPassword"":""" + password + @""",
 										""Language"":""ru-Ru"",
                                         ""TimeZoneOffset"":0
 										}");
 
                                     break;
                                 }
-                    }
+                        }
                     }
                 }
-                using (var response = (HttpWebResponse)request.GetResponse())
+                try
                 {
-                    if (response.StatusCode == HttpStatusCode.OK)
+                    using (var response = (HttpWebResponse)request.GetResponse())
                     {
-                        result = true;
+                        if (response.StatusCode == HttpStatusCode.OK)
+                        {
+                            result = true;
+                        }
+                        response.Close();
                     }
-                    response.Close();
+                }
+                catch (Exception Ex)
+                { 
+
                 }
             }
             if (this._authMethod == "GET")
             {
-                string loginPath = _dataServer + "/ServiceModel/AuthService.svc/Login?UserName="+_dataServiceLogin+"&UserPassword="+_dataServicePassword+"&SolutionName=TSBpm";
+                string loginPath = _dataServer + "/ServiceModel/AuthService.svc/Login?UserName=" + login + "&UserPassword=" + password + "&SolutionName=TSBpm";
 
                 var request = HttpWebRequest.Create(loginPath) as HttpWebRequest;
                 request.Method = "GET";
                 request.ContentType = "application/json";
-                _cookieContainer = new CookieContainer();
-                request.CookieContainer = _cookieContainer;
-                request.Headers.Add("ForceUseSession", "true");
+                if (login == this._dataServiceLogin)
+                {
+                    _cookieContainer = new CookieContainer();
+                    request.CookieContainer = _cookieContainer;
+                    request.Headers.Add("ForceUseSession", "true");
+                }
                 request.Timeout = this._timeoutMS;
 
-                using (var response = (HttpWebResponse)request.GetResponse())
+                try
                 {
-                    if (response.StatusCode == HttpStatusCode.OK)
+                    using (var response = (HttpWebResponse)request.GetResponse())
                     {
-                        result = true;
+                        if (response.StatusCode == HttpStatusCode.OK)
+                        {
+                            result = true;
+                        }
+                        response.Close();
                     }
-                    response.Close();
+                }
+                catch (Exception Ex)
+                {
+
                 }
             }
-
             return result;
+        }
+
+        protected internal bool TryLogin()
+        {
+            return this.CheckAuth(this._dataServiceLogin, this._dataServicePassword);
         }
 
         public List<string> GetCollections()
@@ -601,7 +635,7 @@ namespace BPMOData
             {
                 if (kvp.Value != null)
                 {
-                    xeData.Add(new XElement(ds + kvp.Key, kvp.Value.ToString()));
+                    xeData.Add(new XElement(ds + kvp.Key, RemoveInvalidXMLChars(kvp.Value.ToString()) ));
                 }
             }
 
@@ -637,7 +671,7 @@ namespace BPMOData
                     entry.WriteTo(writer);
                 }
             }
-            catch
+            catch(Exception ex)
             {
                 WebException we = new WebException("Error in writing XML");
                 throw new ODWebException(we);
@@ -654,7 +688,14 @@ namespace BPMOData
             }
             catch (WebException e)
             {
-                throw new ODWebException(e);
+                string details = "";
+                try
+                {
+                    details = new StreamReader(e.Response.GetResponseStream()).ReadToEnd();
+                }
+                catch(Exception ex) { }
+                ODWebException odwe = new ODWebException(e);
+                throw odwe;
             }
 
             this.countRequest();
@@ -863,7 +904,7 @@ namespace BPMOData
             {
                 if (kvp.Value != null)
                 {
-                    xeData.Add(new XElement(ds + kvp.Key, kvp.Value.ToString()));
+                    xeData.Add(new XElement(ds + kvp.Key, RemoveInvalidXMLChars(kvp.Value.ToString())));
                 }
                 else
                 {
@@ -908,7 +949,7 @@ namespace BPMOData
                     entry.WriteTo(writer);
                 }
             }
-            catch
+            catch(Exception ex)
             {
                 WebException we = new WebException("Error in writing XML");
                 throw new ODWebException(we);

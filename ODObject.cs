@@ -289,11 +289,7 @@ namespace BPMOData
                 }
             }
 
-            if (!useVwFile)
-            {
-                return standartData;
-            }
-            else
+            if (useVwFile && standartData.Length==0)
             {
                 ODObject vw = new ODObject(odb, "VwFile", this.Guid);
                 if (vw != null && vw.hasBinaryData)
